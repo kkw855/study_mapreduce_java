@@ -2,6 +2,8 @@ package com.fastcampus.hadoop;
 
 import java.io.IOException;
 import java.util.StringTokenizer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
@@ -14,18 +16,31 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
-public class WordCount extends Configured implements Tool {
+public class WordCountWithCounter extends Configured implements Tool {
+  static enum Word {
+    WITHOUT_SPECIAL_CHARACTER,
+    WITH_SPECIAL_CHARACTER
+  }
   public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable> {
     private final Text word = new Text();
     private final IntWritable one = new IntWritable(1);
+    private final Pattern pattern = Pattern.compile("[^a-z0-9 ]", Pattern.CASE_INSENSITIVE);
 
     @Override
     protected void map(
         Object key, Text value, Mapper<Object, Text, Text, IntWritable>.Context context)
         throws IOException, InterruptedException {
       StringTokenizer itr = new StringTokenizer(value.toString());
+
       while (itr.hasMoreTokens()) {
-        word.set(itr.nextToken().toLowerCase());
+        String str = itr.nextToken().toLowerCase();
+        Matcher matcher = pattern.matcher(str);
+        if (matcher.find()) {
+          context.getCounter(Word.WITH_SPECIAL_CHARACTER).increment(1);
+        } else {
+          context.getCounter(Word.WITHOUT_SPECIAL_CHARACTER).increment(1);
+        }
+        word.set(str);
         context.write(word, one);
         // (hadoop, 1)
       }
@@ -53,14 +68,13 @@ public class WordCount extends Configured implements Tool {
 
   @Override
   public int run(String[] args) throws Exception {
-    Job job = Job.getInstance(getConf());
+    Job job = Job.getInstance(getConf(), "wordCount with counter");
 
-    job.setJarByClass(WordCount.class);
+    job.setJarByClass(WordCountWithCounter.class);
 
     job.setMapperClass(TokenizerMapper.class);
-    job.setReducerClass(IntSumReducer.class);
+    job.setReducerClass(WordCount.IntSumReducer.class);
 
-    // Reducer 와 동일해야 한다
     job.setOutputKeyClass(Text.class);
     job.setOutputValueClass(IntWritable.class);
 
@@ -71,7 +85,7 @@ public class WordCount extends Configured implements Tool {
   }
 
   public static void main(String[] args) throws Exception {
-    int exitCode = ToolRunner.run(new WordCount(), args);
+    int exitCode = ToolRunner.run(new WordCountWithCounter(), args);
     System.exit(exitCode);
   }
 }
